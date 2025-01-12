@@ -1,8 +1,8 @@
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright, Page
 from datetime import datetime
 from PIL import Image
 import numpy as np
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple, List
 from parsers.vision_parser import parse_listing_screenshot
 
 import logging
@@ -26,64 +26,56 @@ class PlaywrightScraper:
         os.makedirs(self.screenshots_dir, exist_ok=True)
         
         # Initialize browser session
+        self.browser = None
+        self.context = None
         self.page = None
         self.first_visit = True
-    
-    def start_browser(self):
+
+    async def start_browser(self) -> Page:
         """Initialize the browser with anti-detection measures"""
-        if self.page is None:
-            self.playwright = sync_playwright().start()
-            
-            # Configure browser to avoid detection
-            browser = self.playwright.chromium.launch(
-                headless=False,
+        if not self.browser:
+            playwright = await async_playwright().start()
+            self.browser = await playwright.chromium.launch(
+                headless=False,  # Set to False to avoid detection
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     '--disable-features=IsolateOrigins,site-per-process'
                 ]
             )
-            
-            context = browser.new_context(
+            self.context = await self.browser.new_context(
                 user_agent=random.choice(self.user_agents),
                 viewport={'width': 1920, 'height': 1080},
                 java_script_enabled=True,
             )
             
             # Add custom scripts to mask automation
-            context.add_init_script("""
+            await self.context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
             """)
             
-            self.browser = browser
-            self.context = context
-            self.page = context.new_page()
-        
+            self.page = await self.context.new_page()
         return self.page
-    
-    def close_browser(self):
+
+    async def close_browser(self):
         """Close all browser instances"""
-        if hasattr(self, 'context'):
-            self.context.close()
-        if hasattr(self, 'browser'):
-            self.browser.close()
-        if hasattr(self, 'playwright'):
-            self.playwright.stop()
-        self.page = None
-        self.first_visit = True
-    
-    def add_human_behavior(self, page):
+        if self.browser:
+            await self.browser.close()
+            self.browser = None
+            self.context = None
+            self.page = None
+
+    async def add_human_behavior(self, page: Page):
         """Add random delays and mouse movements to simulate human behavior"""
-        page.mouse.move(random.randint(100, 500), random.randint(100, 500))
-        page.wait_for_timeout(random.randint(1000, 2000))
-        page.mouse.wheel(0, random.randint(300, 700))
-        page.wait_for_timeout(random.randint(1000, 2000))
-    
-    def handle_cookie_consent(self, page) -> None:
+        await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+        await page.wait_for_timeout(random.randint(1000, 2000))
+        await page.mouse.wheel(0, random.randint(300, 700))
+        await page.wait_for_timeout(random.randint(1000, 2000))
+
+    async def handle_cookie_consent(self, page: Page):
         """Handle cookie consent banner if present"""
         try:
-            # Look for common cookie consent button selectors
             cookie_selectors = [
                 "button[data-testid='accept-btn']",
                 "button:has-text('Accept')",
@@ -95,18 +87,18 @@ class PlaywrightScraper:
             
             for selector in cookie_selectors:
                 try:
-                    cookie_button = page.wait_for_selector(selector, timeout=5000)
+                    cookie_button = await page.wait_for_selector(selector, timeout=5000)
                     if cookie_button:
                         logger.info(f"Found cookie consent button with selector: {selector}")
-                        cookie_button.click()
-                        page.wait_for_timeout(2000)  # Wait for banner to disappear
+                        await cookie_button.click()
+                        await page.wait_for_timeout(2000)
                         break
                 except:
                     continue
         except Exception as e:
             logger.warning(f"Could not handle cookie consent: {str(e)}")
-    
-    def get_screenshot(self, page, selector: str, max_attempts: int = 3) -> Optional[str]:
+
+    async def get_screenshot(self, page: Page, selector: str, max_attempts: int = 3) -> Optional[str]:
         """Take a screenshot of the specified element with retry logic"""
         screenshot_path = None
         
@@ -114,63 +106,57 @@ class PlaywrightScraper:
             logger.info(f"Screenshot attempt {attempt + 1}/{max_attempts}")
             
             try:
-                # Wait for and get the site content
-                element = page.wait_for_selector(selector, state='visible', timeout=60000)
+                element = await page.wait_for_selector(selector, state='visible', timeout=60000)
                 if element:
-                    # More human-like behavior before screenshot
-                    self.add_human_behavior(page)
+                    await self.add_human_behavior(page)
                     
-                    # Take a screenshot of the container
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     screenshot_filename = f"listing_screenshot_{timestamp}_attempt{attempt+1}.png"
                     screenshot_path = os.path.join(self.screenshots_dir, screenshot_filename)
-                    element.screenshot(path=screenshot_path)
+                    await element.screenshot(path=screenshot_path)
                     logger.info(f"Screenshot saved as {screenshot_path}")
                     
                     # Verify screenshot is not blank/white
                     img = Image.open(screenshot_path)
                     img_array = np.array(img)
                     
-                    # Check if image is mostly white (threshold > 250)
                     if np.mean(img_array) > 250:
                         logger.warning("Screenshot appears to be blank/white, retrying...")
                         continue
                     
-                    # If we get here, screenshot is valid
                     return screenshot_path
                 else:
                     logger.warning("Element not found, retrying...")
-            except TimeoutError:
-                logger.error(f"Timeout on attempt {attempt + 1}")
+            except Exception as e:
+                logger.error(f"Screenshot attempt {attempt + 1} failed: {str(e)}")
                 if attempt == max_attempts - 1:
                     raise
             
-            # Wait between attempts
-            page.wait_for_timeout(random.randint(3000, 5000))
-            page.reload()
-            self.add_human_behavior(page)
+            await page.wait_for_timeout(random.randint(3000, 5000))
+            await page.reload()
+            await self.add_human_behavior(page)
         
         return None
-    
-    def scrape_page(self, url: str, start_date: str, end_date: str) -> Optional[str | Dict]:
+
+    async def scrape_page(self, url: str, start_date: str, end_date: str) -> Tuple[str, List[Dict]]:
         """Scrape a page and return the screenshot path if successful"""
         try:
-            page = self.start_browser()
+            page = await self.start_browser()
             
             logger.info(f"Navigating to {url}")
-            page.goto(url)
+            await page.goto(url)
             
             # Initial wait and human-like behavior
-            page.wait_for_timeout(5000)
-            self.add_human_behavior(page)
+            await page.wait_for_timeout(5000)
+            await self.add_human_behavior(page)
             
             # Handle cookie consent only on first visit
             if self.first_visit:
-                self.handle_cookie_consent(page)
+                await self.handle_cookie_consent(page)
                 self.first_visit = False
             
             if "booking.com" in page.url:
-                hotels = page.locator("//div[@data-testid='property-card']").all()
+                hotels = await page.locator("//div[@data-testid='property-card']").all()
                 print(f"Found {len(hotels)} hotels")
                 listings = []
                 for hotel in hotels:
@@ -179,38 +165,47 @@ class PlaywrightScraper:
                     hotel_dict['url'] = url
                     hotel_dict['start_date'] = start_date
                     hotel_dict['end_date'] = end_date
-                    hotel_dict['name'] = hotel.locator("//div[@data-testid='title']").inner_text()
-                    hotel_dict['price'] = hotel.locator("//span[@data-testid='price-and-discounted-price']").inner_text().replace(u'\xa0', u'')
-                    hotel_dict['rating'] = hotel.locator("//div[@data-testid='review-score']").inner_text().split('\n')[1].strip()
-                    hotel_dict['bed_configuration'] = hotel.locator("//div[@data-testid='recommended-units']").inner_text()
+                    
+                    # Properly await all locator operations
+                    title_element = hotel.locator("//div[@data-testid='title']")
+                    price_element = hotel.locator("//span[@data-testid='price-and-discounted-price']")
+                    rating_element = hotel.locator("//div[@data-testid='review-score']")
+                    beds_element = hotel.locator("//div[@data-testid='recommended-units']")
+                    
+                    # Get text content with proper awaiting
+                    hotel_dict['name'] = await title_element.inner_text() if await title_element.count() > 0 else "N/A"
+                    price_text = await price_element.inner_text() if await price_element.count() > 0 else "N/A"
+                    hotel_dict['price'] = price_text.replace(u'\xa0', u'') if price_text != "N/A" else "N/A"
+                    
+                    rating_text = await rating_element.inner_text() if await rating_element.count() > 0 else "N/A"
+                    hotel_dict['rating'] = rating_text.split('\n')[1].strip() if rating_text != "N/A" else "N/A"
+                    
+                    hotel_dict['bed_configuration'] = await beds_element.inner_text() if await beds_element.count() > 0 else "N/A"
+                    
                     print(hotel_dict)
                     listings.append(hotel_dict)
                 return "booking", listings
-
-            if "airbnb" in page.url:
-                screenshot_path = self.get_screenshot(page, "#site-content")
-                # Parse the screenshot using Vision AI
-                parsed_listings = parse_listing_screenshot(screenshot_path)
-                if parsed_listings:
-                    # Clear previous listings
-                    self.listings = []
-                    
-                    # Store listings with metadata
-                    for listing in parsed_listings:
-                        self.listings.append({
-                            'timestamp': datetime.now().isoformat(),
-                            'url': url,
-                            'start_date': start_date,
-                            'end_date': end_date,
-                            'listing': listing.model_dump()
-                        })
-                    logger.info(f"Successfully parsed {len(parsed_listings)} listings")
-                return "airbnb", parsed_listings
-
+            elif "airbnb.com" in page.url:
+                screenshot_path = await self.get_screenshot(page, "#site-content")
+                if screenshot_path:
+                    # Parse the screenshot using Vision AI
+                    parsed_listings = parse_listing_screenshot(screenshot_path)
+                    if parsed_listings:
+                        listings = []
+                        for listing in parsed_listings:
+                            listings.append({
+                                'timestamp': datetime.now().isoformat(),
+                                'url': url,
+                                'start_date': start_date,
+                                'end_date': end_date,
+                                'listing': listing.model_dump()
+                            })
+                        logger.info(f"Successfully parsed {len(parsed_listings)} listings")
+                        return "airbnb", listings
+                return "airbnb", []
+            
             return "none", []
             
         except Exception as e:
-            logger.error(f"An error occurred while scraping: {str(e)}")
-            # Close browser on error to ensure clean state
-            self.close_browser()
-            raise
+            logger.error(f"Error scraping page: {str(e)}")
+            return "none", []
