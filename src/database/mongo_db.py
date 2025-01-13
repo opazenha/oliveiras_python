@@ -61,7 +61,7 @@ class MongoDBClient:
     def get_airbnb_listings(self) -> List:
         """Get all airbnb listings from MongoDB"""
         try:
-            return list(self.collection.find())
+            return list(self.db.airbnb.find())
         except Exception as e:
             logger.error(f"Failed to get airbnb listings from MongoDB: {str(e)}")
             raise
@@ -81,7 +81,7 @@ class MongoDBClient:
                 'start_date': {'$gte': start_date},
                 'end_date': {'$lte': end_date}
             }
-            return list(self.collection.find(query))
+            return list(self.db.airbnb.find(query))
         except Exception as e:
             logger.error(f"Failed to get listings by date range: {str(e)}")
             raise
@@ -99,7 +99,53 @@ class MongoDBClient:
             query = {
                 'listing.name': {'$regex': name_pattern, '$options': 'i'}  # case-insensitive
             }
-            return list(self.collection.find(query))
+            return list(self.db.airbnb.find(query))
+        except Exception as e:
+            logger.error(f"Failed to get listings by name: {str(e)}")
+            raise
+    
+    def get_booking_listings(self) -> List:
+        """Get all booking listings from MongoDB"""
+        try:
+            return list(self.db.booking.find())
+        except Exception as e:
+            logger.error(f"Failed to get booking listings from MongoDB: {str(e)}")
+            raise
+
+    def get_booking_listings_by_date_range(self, start_date: str, end_date: str) -> List:
+        """Get listings within a specific date range
+        
+        Args:
+            start_date (str): Start date in YYYY-MM-DD format
+            end_date (str): End date in YYYY-MM-DD format
+            
+        Returns:
+            List: List of listings within the date range
+        """
+        try:
+            query = {
+                'start_date': {'$gte': start_date},
+                'end_date': {'$lte': end_date}
+            }
+            return list(self.db.booking.find(query))
+        except Exception as e:
+            logger.error(f"Failed to get listings by date range: {str(e)}")
+            raise
+
+    def get_booking_listings_by_name(self, name_pattern: str) -> List:
+        """Get listings where name contains the given pattern
+        
+        Args:
+            name_pattern (str): Pattern to search for in listing names
+            
+        Returns:
+            List: List of listings matching the name pattern
+        """
+        try:
+            query = {
+                'listing.name': {'$regex': name_pattern, '$options': 'i'}  # case-insensitive
+            }
+            return list(self.db.booking.find(query))
         except Exception as e:
             logger.error(f"Failed to get listings by name: {str(e)}")
             raise

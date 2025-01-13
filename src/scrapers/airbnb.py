@@ -1,6 +1,6 @@
 from typing import List, Dict
 
-def calculate_price_analyses(listings: List[Dict]) -> Dict:
+def calculate_airbnb_price_analyses(listings: List[Dict]) -> Dict:
     """Calculate price statistics from a list of MongoDB listings
     
     Args:
@@ -39,7 +39,7 @@ def calculate_price_analyses(listings: List[Dict]) -> Dict:
         'listings_with_price': len(prices)
     }
 
-def get_listings_summary(listings: List[Dict]) -> Dict:
+def get_airbnb_listings_summary(listings: List[Dict]) -> Dict:
     """Get a summary of the listings including price analysis and general stats
     
     Args:

@@ -175,7 +175,8 @@ class PlaywrightScraper:
                     # Get text content with proper awaiting
                     hotel_dict['name'] = await title_element.inner_text() if await title_element.count() > 0 else "N/A"
                     price_text = await price_element.inner_text() if await price_element.count() > 0 else "N/A"
-                    hotel_dict['price'] = price_text.replace(u'\xa0', u'') if price_text != "N/A" else "N/A"
+                    price_float = float(price_text.replace(u'€\xa0', u'').replace(",", ".")) if price_text != "N/A" else "N/A"
+                    hotel_dict['price'] = price_float
                     
                     rating_text = await rating_element.inner_text() if await rating_element.count() > 0 else "N/A"
                     hotel_dict['rating'] = rating_text.split('\n')[1].strip() if rating_text != "N/A" else "N/A"

@@ -4,11 +4,12 @@ from typing import List, Dict
 from utils.scraping_utils import PlaywrightScraper
 from database.mongo_db import MongoDBClient
 from bson import json_util
-import asyncio
-from playwright.async_api import async_playwright
+from scrapers.airbnb import calculate_airbnb_price_analyses
+from scrapers.booking import calculate_booking_price_analyses
 
-import time
+import asyncio
 import logging
+import argparse
 
 load_dotenv()
 
@@ -61,12 +62,16 @@ class RentalScraper:
             self.mongo_client.close()
 
 async def main() -> None:
+    parser = argparse.ArgumentParser(description='Scrape rental listings')
+    parser.add_argument('start_date', type=str, help='Start date in YYYY-MM-DD format')
+    parser.add_argument('end_date', type=str, help='End date in YYYY-MM-DD format')
+    args = parser.parse_args()
+
     scraper = RentalScraper()
     
     try:
-        # Example dates for the search
-        start_date = "2025-03-05"
-        end_date = "2025-03-07"
+        start_date = args.start_date
+        end_date = args.end_date
         
         current_date = datetime.strptime(start_date, "%Y-%m-%d")
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
@@ -91,6 +96,20 @@ async def main() -> None:
         await scraper.airbnb_scraper.close_browser()
         await scraper.booking_scraper.close_browser()
         await scraper.close()
+
+    airbnb_listings = MongoDBClient().get_airbnb_listings_by_date_range(start_date, end_date)
+    if airbnb_listings:
+        print("\nAirbnb Listings Data:")
+        print(calculate_airbnb_price_analyses(airbnb_listings))
+    else:
+        print("No airbnb listings found.")
+
+    booking_listings = MongoDBClient().get_booking_listings_by_date_range(start_date, end_date)
+    if booking_listings:
+        print("\nBooking Listings Data:")
+        print(calculate_booking_price_analyses(booking_listings))
+    else:
+        print("No booking listings found.")
 
 if __name__ == "__main__":
     asyncio.run(main())
