@@ -97,14 +97,14 @@ async def main() -> None:
         await scraper.booking_scraper.close_browser()
         await scraper.close()
 
-    airbnb_listings = MongoDBClient().get_airbnb_listings_by_date_range(start_date, end_date)
+    airbnb_listings = MongoDBClient().get_airbnb_listings_by_date_range(args.start_date, args.end_date)
     if airbnb_listings:
         print("\nAirbnb Listings Data:")
         print(calculate_airbnb_price_analyses(airbnb_listings))
     else:
         print("No airbnb listings found.")
 
-    booking_listings = MongoDBClient().get_booking_listings_by_date_range(start_date, end_date)
+    booking_listings = MongoDBClient().get_booking_listings_by_date_range(args.start_date, args.end_date)
     if booking_listings:
         print("\nBooking Listings Data:")
         print(calculate_booking_price_analyses(booking_listings))
